@@ -1,0 +1,299 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/>
+<title>Riskit – widget</title>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+  body{
+    font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
+    margin:16px;
+    color:#000000;
+  }
+
+  /* KPI Grid smaller */
+  .kpis{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:8px;
+    margin:8px 0;
+  }
+  .kpi{
+    background:#f6f8fa;
+    border:1px solid #e5e7eb;
+    border-radius:6px;
+    padding:10px;
+    font-size:13px;
+  }
+
+  /* TABLE MADE SMALLER */
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:10px;
+    font-size:12px;         /* smaller text */
+  }
+  th, td{
+    padding:4px 6px;         /* smaller cell padding */
+    border:1px solid #ccc;
+    text-align:left;
+  }
+  th{
+    background:#024873;
+    color:#fff;
+    font-size:12px;
+  }
+  tr:hover{
+    background:#f4f4f4;
+  }
+
+  /* Filters */
+  .filters{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+    margin:8px 0;
+  }
+  select,input{
+    padding:4px 6px;
+    border-radius:6px;
+    border:1px solid #d1d5db;
+    font-size:12px;
+  }
+
+  .btn{
+    background:#0ea5e9;
+    color:white;
+    border:none;
+    border-radius:6px;
+    padding:6px 10px;
+    cursor:pointer;
+    font-size:12px;
+  }
+</style>
+
+<script>
+  function emitFilter(payload){
+    const msg={type:'eshare.filter',payload};
+    try{window.parent && window.parent.postMessage(msg,'*')}catch(e){}
+    try{if(typeof window.eshareApplyFilter==='function') window.eshareApplyFilter(payload)}catch(e){}
+  }
+</script>
+
+</head>
+<body>
+
+<header>
+  <h2>Riskit – RAG & riskimatriisi</h2>
+
+  <div class="filters">
+    <select id="area"><option value="">Alue: kaikki</option></select>
+    <select id="disc"><option value="">Suunnitteluala: kaikki</option></select>
+    <select id="status">
+      <option value="">Tila: kaikki</option>
+      <option>Avoin</option>
+      <option>Työn alla</option>
+      <option>Suljettu</option>
+    </select>
+    <button class="btn" id="clear">Tyhjennä suodatus</button>
+  </div>
+</header>
+
+<section class="kpis">
+  <div class="kpi">
+    <div id="kpiOpen" style="font-size:18px;font-weight:700">–</div>
+    <div>Avoimia riskejä</div>
+  </div>
+
+  <div class="kpi">
+    <div id="kpiDue" style="font-size:18px;font-weight:700">–</div>
+    <div>Erääntyy 14 päivän sisällä</div>
+  </div>
+
+  <div class="kpi">
+    <div id="kpiRpn" style="font-size:18px;font-weight:700">–</div>
+    <div>Keskimääräinen RPN</div>
+  </div>
+
+  <div class="kpi">
+    <div id="kpiClosed" style="font-size:18px;font-weight:700">–</div>
+    <div>Suljettu 30 päivän aikana</div>
+  </div>
+</section>
+
+<canvas id="riskHeat" height="100"></canvas>
+
+<table id="grid">
+<thead>
+<tr>
+  <th>Riskitunnus</th>
+  <th>Alue</th>
+  <th>Suunnitteluala</th>
+  <th>Tagi</th>
+  <th>Riskin otsikko</th>
+  <th>Todenn.</th>
+  <th>Vaikutus</th>
+  <th>RPN</th>
+  <th>Omistaja</th>
+  <th>Tila</th>
+  <th>Eräpäivä</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script>
+/* --------------------------------------------
+   EMBEDDED RISK DATA
+--------------------------------------------- */
+const embeddedRiskData = `RiskID,Area,Discipline,TagID,RiskTitle,Category,Probability,Impact,RPN,Owner,Status,DueDate
+R-001,Rakennushalli A,Runkorakenne,TAG-PU-704,Muotin pettäminen,Turvallisuus,4,4,16,Liimatainen,Avoin,2025-11-20
+R-002,Kuivatelakka,Piping,TAG-EL-718,Hitsausroiskeet,HSE,3,5,15,Tervala,Työn alla,2025-11-25
+R-003,K-fitting Quay,HVAC,TAG-HV-646,Nostoalueen rajaus puutteellinen,Aikataulu,2,3,6,Lähdetie,Suljettu,2025-10-28
+R-004,Rakennushalli B,E&I,TAG-ST-505,Keskuskaapin viive,Kustannus,5,4,20,Irma,Avoin,2025-12-05
+R-005,Kuivatelakka,Runkorakenne,TAG-PU-489,Putkilinjan telineet puutteelliset,Turvallisuus,3,4,12,Lilja,Avoin,2025-11-30`;
+
+let rows = [];
+let filtered = [];
+
+Papa.parse(embeddedRiskData.trim(), {
+  header: true,
+  skipEmptyLines: true,
+  complete: (res) => {
+    rows = res.data.map(r => ({
+      ...r,
+      Probability: Number(r.Probability),
+      Impact: Number(r.Impact),
+      RPN: Number(r.RPN),
+      DueDate: new Date(r.DueDate)
+    }));
+    document.addEventListener("DOMContentLoaded", init);
+  }
+});
+
+/* --------------------------------------------
+   MAIN INIT
+--------------------------------------------- */
+function init(){
+  fillFilters();
+  apply();
+
+  document.getElementById('clear').onclick = () => {
+    ['area','disc','status'].forEach(id => document.getElementById(id).value = '');
+    apply();
+  };
+
+  ['area','disc','status'].forEach(id =>
+    document.getElementById(id).onchange = apply
+  );
+}
+
+function fillFilters(){
+  const areas = [...new Set(rows.map(r=>r.Area))];
+  const discs = [...new Set(rows.map(r=>r.Discipline))];
+
+  areas.forEach(v=>{
+    const o=document.createElement('option'); o.value=v; o.textContent=v;
+    area.appendChild(o);
+  });
+
+  discs.forEach(v=>{
+    const o=document.createElement('option'); o.value=v; o.textContent=v;
+    disc.appendChild(o);
+  });
+}
+
+let chart;
+
+function apply(){
+  const a = document.getElementById("area").value;
+  const d = document.getElementById("disc").value;
+  const s = document.getElementById("status").value;
+
+  const now = new Date();
+
+  filtered = rows.filter(r =>
+    (a === "" || r.Area === a) &&
+    (d === "" || r.Discipline === d) &&
+    (s === "" || r.Status === s)
+  );
+
+  // KPIs
+  kpiOpen.textContent = filtered.filter(r=>r.Status!=='Suljettu').length;
+
+  kpiDue.textContent = filtered.filter(r =>
+    r.Status!=='Suljettu' && (r.DueDate - now)/(1000*3600*24) <= 14
+  ).length;
+
+  const rpns = filtered.map(r=>r.RPN).filter(n=>!isNaN(n));
+  kpiRpn.textContent = rpns.length
+    ? Math.round(rpns.reduce((a,b)=>a+b,0)/rpns.length)
+    : "–";
+
+  kpiClosed.textContent = rows.filter(r =>
+    r.Status==='Suljettu' &&
+    (now - r.DueDate)/(1000*3600*24) <= 30
+  ).length;
+
+  renderGrid();
+  renderHeatmap();
+}
+
+function renderGrid(){
+  const tb=document.querySelector('#grid tbody');
+  tb.innerHTML='';
+
+  filtered.sort((a,b)=>b.RPN-a.RPN).forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.RiskID}</td><td>${r.Area}</td><td>${r.Discipline}</td>
+      <td>${r.TagID}</td><td>${r.RiskTitle}</td>
+      <td>${r.Probability}</td><td>${r.Impact}</td><td>${r.RPN}</td>
+      <td>${r.Owner}</td><td>${r.Status}</td>
+      <td>${r.DueDate.toISOString().slice(0,10)}</td>`;
+
+    tr.onclick = () => emitFilter({
+      tagIds: [r.TagID],
+      riskIds: [r.RiskID]
+    });
+
+    tb.appendChild(tr);
+  });
+}
+
+function renderHeatmap(){
+  
+  const m = [...Array(5)].map(()=>[0,0,0,0,0]);
+
+  filtered.forEach(r=>{
+    const p=Math.max(1,Math.min(5,r.Probability));
+    const i=Math.max(1,Math.min(5,r.Impact));
+    m[p-1][i-1]++;
+  });
+
+  const labels=['Vaik. 1','Vaik. 2','Vaik. 3','Vaik. 4','Vaik. 5'];
+  const rowColors=['#e6f7e6','#d1fae5','#fde68a','#fdba74','#fecaca'];
+
+  const ds = m.map((row,i)=>({
+    label:`Todenn. ${i+1}`,
+    data:row,
+    backgroundColor:rowColors[i]
+  }));
+
+  if(chart) chart.destroy();
+
+  chart = new Chart(document.getElementById('riskHeat'),{
+    type:'bar',
+    data:{ labels, datasets:ds },
+    options:{
+      responsive:true,
+      plugins:{ legend:{position:'bottom'} },
+      scales:{ x:{stacked:true}, y:{stacked:true} }
+    }
+  });
+}
+</script>
+
+</body>
+</html>

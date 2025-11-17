@@ -1,0 +1,189 @@
+<!DOCTYPE HTML>
+<!--
+	Dimension by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+	<head>
+		<title>Dimension by HTML5 UP</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+
+		<style>
+			body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:16px;color:#1b1b1b}
+		    .kpi-grid {display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;}
+			.kpi-card {background: rgba(0, 0, 0, 0.623); padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;}
+			.kpi-title { font-size: 14px; color: #ffffff; }
+			.kpi-value { font-size: 32px; font-weight: bold; margin: 10px 0; color: #024873; }
+			.kpi-sub { color: #ffffff; font-size: 13px; }
+
+			/* Mini-bar chart */
+			.chart {display: flex; height: 60px; align-items: flex-end; gap: 4px; margin-top: 5px;}
+			.bar {width: 12px; background: #438ec9; border-radius: 3px;}
+
+			/* Section */
+			.section {background: rgba(0, 0, 0, 0.623); padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 25px;}
+			.asset-form input { margin: 5px; padding: 5px; }
+			table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+			th, td { padding: 8px; border: 1px solid #ccc; text-align: left; }
+			th { background: #024873; color: #fff; }
+			.actions button { margin-right: 5px; }
+			#search { margin-bottom: 10px; padding: 6px; width: 300px; }
+		</style>
+	</head>
+	<body class="is-preload">
+								<h2>Resurssien hallinta</h2>
+								<input type="text" id="search" placeholder="Etsi resurssi…">
+
+								<div class="asset-form">
+									<input type="hidden" id="assetId">
+									<input type="text" id="name" placeholder="Resurssin nimi">
+									<input type="text" id="type" placeholder="Tyyppi (Hull, Tool, Engine, etc.)">
+									<input type="text" id="location" placeholder="Sijainti (Bay, Deck, Warehouse)">
+									<input type="number" id="quantity" placeholder="Määrä">
+									<button onclick="saveAsset()">Tallenna resurssi</button>
+								</div>
+
+								<div style="margin-top:10px;">
+									<input type="file" id="csvFile" accept=".csv">
+									<button onclick="importCSV()">Import CSV</button>
+									<button onclick="exportCSV()">Export CSV</button>
+								</div>
+
+								<table id="assetTable">
+									<thead>
+										<tr>
+											<th>Nimi</th>
+											<th>Tyyppi</th>
+											<th>Sijainti</th>
+											<th>Määrä</th>
+											<th>Toiminnot</th>
+										</tr>
+									</thead>
+									<tbody></tbody>
+								</table>
+
+								<script>
+								/* ---------------------------------------------------------
+								INITIAL EXAMPLE ASSETS
+								--------------------------------------------------------- */
+								let assets = [
+									{ name: "Hull Plate A36 Steel", type: "Hull Material", location: "Fabrication Bay 1", quantity: 120 },
+									{ name: "Main Propulsion Diesel Engine (MAN 6L)", type: "Engine", location: "Warehouse 3", quantity: 2 },
+									{ name: "Hydraulic Steering Pump", type: "Mechanical Component", location: "Deck Assembly Area", quantity: 4 },
+									{ name: "Navigation Radar Antenna", type: "Electronics", location: "Electronics Lab", quantity: 6 },
+									{ name: "Welding Machine (MIG 350A)", type: "Tool", location: "Workshop 2", quantity: 14 },
+									{ name: "Fuel Line Pipe Section 50mm", type: "Pipe", location: "Storage Yard", quantity: 87 },
+									{ name: "Electrical Cable Spool (Marine Grade)", type: "Electrical", location: "Warehouse 1", quantity: 45 },
+									{ name: "Ballast Pump 10kW", type: "Pump System", location: "Mechanical Storage", quantity: 5 },
+									{ name: "Composite Deck Panel", type: "Structural", location: "Deck Fabrication Area", quantity: 32 },
+									{ name: "Life Raft - 12 Person", type: "Safety Equipment", location: "Safety Locker", quantity: 18 }
+								];
+
+								function renderTable(data = assets) {
+									const tbody = document.querySelector("#assetTable tbody");
+									tbody.innerHTML = "";
+
+									data.forEach((a, i) => {
+										const row = `
+											<tr>
+												<td>${a.name}</td>
+												<td>${a.type}</td>
+												<td>${a.location}</td>
+												<td>${a.quantity}</td>
+												<td class="actions">
+													<button onclick="editAsset(${i})">Edit</button>
+													<button onclick="deleteAsset(${i})">Delete</button>
+												</td>
+											</tr>`;
+										tbody.insertAdjacentHTML("beforeend", row);
+									});
+								}
+
+								function saveAsset() {
+									const id = document.getElementById("assetId").value;
+									const asset = {
+										name: document.getElementById("name").value,
+										type: document.getElementById("type").value,
+										location: document.getElementById("location").value,
+										quantity: document.getElementById("quantity").value
+									};
+
+									if (id) assets[id] = asset;
+									else assets.push(asset);
+
+									clearForm();
+									renderTable();
+								}
+
+								function editAsset(index) {
+									const a = assets[index];
+									document.getElementById("assetId").value = index;
+									document.getElementById("name").value = a.name;
+									document.getElementById("type").value = a.type;
+									document.getElementById("location").value = a.location;
+									document.getElementById("quantity").value = a.quantity;
+								}
+
+								function deleteAsset(index) {
+									assets.splice(index, 1);
+									renderTable();
+								}
+
+								function clearForm() {
+									document.querySelectorAll(".asset-form input").forEach(i => i.value = "");
+								}
+
+								document.getElementById("search").addEventListener("input", function () {
+									const q = this.value.toLowerCase();
+									const filtered = assets.filter(a =>
+										Object.values(a).join(" ").toLowerCase().includes(q)
+									);
+									renderTable(filtered);
+								});
+
+								/* ---- CSV IMPORT ---- */
+								function importCSV() {
+									const file = document.getElementById("csvFile").files[0];
+									if (!file) return;
+
+									const reader = new FileReader();
+									reader.onload = function (e) {
+										const lines = e.target.result.split("\n");
+										assets = lines
+											.map(line => line.split(","))
+											.filter(r => r.length >= 4)
+											.map(r => ({
+												name: r[0].trim(),
+												type: r[1].trim(),
+												location: r[2].trim(),
+												quantity: r[3].trim()
+											}));
+										renderTable();
+									};
+									reader.readAsText(file);
+								}
+
+								/* ---- CSV EXPORT ---- */
+								function exportCSV() {
+									let csv = "name,type,location,quantity\n";
+									assets.forEach(a => {
+										csv += `${a.name},${a.type},${a.location},${a.quantity}\n`;
+									});
+
+									const blob = new Blob([csv], { type: "text/csv" });
+									const a = document.createElement("a");
+									a.href = URL.createObjectURL(blob);
+									a.download = "ship_assets.csv";
+									a.click();
+								}
+
+								/* Initialize table with example data */
+								renderTable();
+								</script>
+
+
+
+	</body>
+</html>

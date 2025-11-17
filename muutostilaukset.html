@@ -1,0 +1,169 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <title>Muutostilaukset</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+
+    <style>
+        body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:16px;color:#000000}
+        .kpi-grid {display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px;}
+        .kpi-card {background: rgb(248, 248, 248); padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;}
+        .kpi-title { font-size: 14px; color: #000000; }
+        .kpi-value { font-size: 32px; font-weight: bold; margin: 10px 0; color: #024873; }
+        .kpi-sub { color: #000000; font-size: 13px; }
+
+        /* Mini-palkkikaavio */
+        .chart {display: flex; height: 60px; align-items: flex-end; gap: 4px; margin-top: 5px;}
+        .bar {width: 12px; background: #438ec9; border-radius: 3px;}
+
+        /* Osio */
+        .section {background: rgb(255, 255, 255); padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgb(255, 255, 255); margin-top: 25px;}
+        .asset-form input { margin: 5px; padding: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 8px; border: 1px solid #ccc; text-align: left; }
+        th { background: #024873; color: #fff; }
+        .actions button { margin-right: 5px; }
+        #search { margin-bottom: 10px; padding: 6px; width: 300px; }
+    </style>
+</head>
+<body class="is-preload">
+    <h2>Muutostilaukset</h2>
+
+    <label for="statusDropdown">Tila:</label>
+    <select id="statusDropdown">
+        <option value="">Kaikki</option>
+    </select>
+
+    <label for="areaDropdown">Alue:</label>
+    <select id="areaDropdown">
+        <option value="">Kaikki</option>
+    </select>
+
+    <label for="searchInput">Haku (COD tai Suunnitteluala):</label>
+    <input type="text" id="searchInput" placeholder="Kirjoita hakusana">
+
+    <table id="changeOrdersTable">
+        <thead>
+            <tr>
+                <th>COD</th>
+                <th>Alue</th>
+                <th>Suunnitteluala</th>
+                <th>Tila</th>
+                <th>Päivämäärä <button id="sortDateBtn">↕</button></th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script>
+        const csvData = `
+COD,Area,Discipline,Status,Date
+CO-01,Alue A,Sähkö,Open,2025-11-02
+CO-02,Alue B,Putkisto,In Progress,2025-11-03
+CO-03,Alue C,Rakennus,Closed,2025-11-04
+CO-04,Alue A,Kone,Open,2025-11-05
+`.trim();
+
+        let allRows = [];
+        let sortAsc = false;
+
+        function parseCSV() {
+            const rows = csvData.split("\n");
+            allRows = rows.slice(1).map(row => row.split(","));
+            populateDropdowns();
+            renderTable(allRows);
+        }
+
+        function populateDropdowns() {
+            const statuses = [...new Set(allRows.map(row => row[3]))];
+            const areas = [...new Set(allRows.map(row => row[1]))];
+
+            const statusDropdown = document.getElementById("statusDropdown");
+            statuses.forEach(status => {
+                const option = document.createElement("option");
+                option.value = status;
+                switch(status.toLowerCase()) {
+                    case "open": option.textContent = "Avoin"; break;
+                    case "in progress": option.textContent = "Työn alla"; break;
+                    case "closed": option.textContent = "Suljettu"; break;
+                    default: option.textContent = status; break;
+                }
+                statusDropdown.appendChild(option);
+            });
+
+            const areaDropdown = document.getElementById("areaDropdown");
+            areas.forEach(area => {
+                const option = document.createElement("option");
+                option.value = area;
+                option.textContent = area;
+                areaDropdown.appendChild(option);
+            });
+        }
+
+        function renderTable(data) {
+            const tbody = document.querySelector("#changeOrdersTable tbody");
+            tbody.innerHTML = "";
+            data.forEach(cols => {
+                const tr = document.createElement("tr");
+                cols.forEach((col, index) => {
+                    const td = document.createElement("td");
+                    if(index === 3) {
+                        td.textContent = translateStatus(col);
+                    } else {
+                        td.textContent = col;
+                    }
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+        }
+
+        function translateStatus(status) {
+            switch (status.toLowerCase()) {
+                case "open": return "Avoin";
+                case "in progress": return "Työn alla";
+                case "closed": return "Suljettu";
+                default: return status;
+            }
+        }
+
+        function applyFilters() {
+            const selectedStatus = document.getElementById("statusDropdown").value;
+            const selectedArea = document.getElementById("areaDropdown").value;
+            const searchValue = document.getElementById("searchInput").value.toLowerCase();
+
+            let filteredRows = allRows;
+            if (selectedStatus) {
+                filteredRows = filteredRows.filter(row => row[3] === selectedStatus);
+            }
+            if (selectedArea) {
+                filteredRows = filteredRows.filter(row => row[1] === selectedArea);
+            }
+            if (searchValue) {
+                filteredRows = filteredRows.filter(row =>
+                    row[0].toLowerCase().includes(searchValue) || // COD
+                    row[2].toLowerCase().includes(searchValue)    // Discipline
+                );
+            }
+            renderTable(filteredRows);
+        }
+
+        document.getElementById("statusDropdown").addEventListener("change", applyFilters);
+        document.getElementById("areaDropdown").addEventListener("change", applyFilters);
+        document.getElementById("searchInput").addEventListener("input", applyFilters);
+
+        document.getElementById("sortDateBtn").addEventListener("click", function() {
+            sortAsc = !sortAsc;
+            allRows.sort((a, b) => {
+                const dateA = new Date(a[4]);
+                const dateB = new Date(b[4]);
+                return sortAsc ? dateA - dateB : dateB - dateA;
+            });
+            applyFilters();
+        });
+
+        parseCSV();
+    </script>
+</body>
+</html>
