@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shipyard File Explorer – Drag & Drop Enabled</title>
+<style>
+    body {
+        margin: 0;
+        font-family: "Segoe UI", sans-serif;
+        background: #ececec;
+    }
+    #explorer {
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* LEFT TREE */
+    #tree {
+        width: 240px;
+        background: #f9f9f9;
+        border-right: 1px solid #ccc;
+        padding: 8px;
+        overflow-y: auto;
+        user-select: none;
+    }
+    .tree-item {
+        padding: 4px 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 4px;
+    }
+    .tree-item:hover { background: #e5f0fb; }
+    .tree-item.active { background: #cce4ff; }
+    .tree-item.drop-target { background: #b3d6ff !important; }
+
+    /* MAIN AREA */
+    #main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: white;
+        user-select: none; /* Prevent text highlighting */
+    }
+
+    #toolbar {
+        background: #f1f1f1;
+        border-bottom: 1px solid #ccc;
+        padding: 6px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+    button {
+        font-size: 14px;
+        padding: 4px 12px;
+        border: 1px solid #888;
+        background: #fafafa;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+    button:hover { background: #e5e5e5; }
+
+    #addressBar {
+        border: 1px solid #aaa;
+        margin-left: 10px;
+        padding: 4px 8px;
+        flex: 1;
+        background: white;
+        border-radius: 3px;
+    }
+
+    #details {
+        flex: 1;
+        overflow-y: auto;
+        position: relative;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    th {
+        background: #f7f7f7;
+        padding: 6px;
+        border-bottom: 1px solid #ccc;
+        text-align: left;
+        user-select: none;
+    }
+    td {
+        padding: 6px;
+        border-bottom: 1px solid #eee;
+        cursor: pointer;
+    }
+    tr:hover { background: #e8f2ff; }
+    tr.drop-target { background: #cce3ff !important; }
+    .icon { font-size: 18px; margin-right: 6px; }
+
+    /* Menus */
+    .contextMenu {
+        position: fixed;
+        display: none;
+        background: white;
+        border: 1px solid #888;
+        box-shadow: 2px 2px 6px rgba(0,0,0,0.3);
+        border-radius: 5px;
+        width: 170px;
+        z-index: 2000;
+    }
+    .menu-item {
+        padding: 8px 12px;
+        cursor: pointer;
+    }
+    .menu-item:hover {
+        background: #e5e5e5;
+    }
+
+    /* Popup */
+    #popup {
+        position: fixed;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 1px solid #aaa;
+        padding: 20px;
+        display: none;
+        z-index: 3000;
+        border-radius: 6px;
+        box-shadow: 0 0 20px rgba(0,0,0,0.3);
+    }
+</style>
+</head>
+<body>
+
+<div id="explorer">
+    <div id="tree"></div>
+
+    <div id="main">
+
+        <div id="toolbar">
+            <button onclick="createFolder()">New Folder</button>
+            <button onclick="uploadFile()">Upload File</button>
+            <button onclick="goUp()">▲ Up</button>
+            <input type="file" id="fileInput" style="display:none" onchange="handleUpload(event)">
+            <div id="addressBar"></div>
+        </div>
+
+        <div id="details">
+            <table>
+                <thead>
+                    <tr><th>Name</th><th>Type</th><th>Size</th></tr>
+                </thead>
+                <tbody id="fileTable"></tbody>
+            </table>
+        </div>
+
+        <!-- FILE MENU -->
+        <div id="fileMenu" class="contextMenu">
+            <div class="menu-item" onclick="cutItem()">Cut</div>
+            <div class="menu-item" onclick="deleteItem()">Delete</div>
+            <div class="menu-item" onclick="showProperties()">Properties</div>
+        </div>
+
+        <!-- EMPTY SPACE MENU -->
+        <div id="emptyMenu" class="contextMenu">
+            <div class="menu-item" onclick="pasteItem()">Paste</div>
+        </div>
+
+    </div>
+</div>
+
+<div id="popup">
+    <div id="popupText"></div>
+    <button onclick="closePopup()">OK</button>
+</div>
+
+<script>
+/* -----------------------------------------------------------
+   SIMPLE FILESYSTEM
+----------------------------------------------------------- */
+let fs = {
+    name: "Shipyard",
+    type: "folder",
+    children: [
+        { name: "Engineering", type: "folder", children: [
+            { name: "Hull_GA.dwg", type: "file", size: 2400000 },
+            { name: "Midship_Section.pdf", type: "file", size: 820000 },
+            { name: "Stability_Calc.xlsx", type: "file", size: 120000 },
+            { name: "Structural_Model.step", type: "file", size: 12500000 }
+        ]},
+        { name: "Hull", type: "folder", children: [
+            { name: "Frame_Assembly_001.dxf", type: "file", size: 540000 },
+            { name: "Plate_Nesting_RevC.pdf", type: "file", size: 300000 },
+            { name: "Welding_Map_RevB.pdf", type: "file", size: 500000 }
+        ]},
+        { name: "Outfitting", type: "folder", children: [
+            { name: "Piping_ISO_Deck3.pdf", type: "file", size: 210000 },
+            { name: "Ventilation_Route_A11.dwg", type: "file", size: 760000 }
+        ]}
+    ]
+};
+
+let currentFolder = fs;
+let rightClickedItem = null;
+let cutBuffer = null;
+
+let dragItem = null;
+
+/* -----------------------------------------------------------
+   TREE
+----------------------------------------------------------- */
+function renderTree(node = fs, parentEl = document.getElementById("tree"), level = 0) {
+    if (level === 0) parentEl.innerHTML = "";
+
+    let div = document.createElement("div");
+    div.className = "tree-item" + (node === currentFolder ? " active" : "");
+    div.style.paddingLeft = (level * 16) + "px";
+    div.innerHTML = `<span class="icon">📁</span> ${node.name}`;
+    div.onclick = () => { currentFolder = node; renderEverything(); };
+
+    /* ---- DROP TARGETS (tree folders) ---- */
+    div.addEventListener("dragover", e => {
+        if (dragItem && dragItem.type === "file") {
+            e.preventDefault();
+            div.classList.add("drop-target");
+        }
+    });
+
+    div.addEventListener("dragleave", () => div.classList.remove("drop-target"));
+
+    div.addEventListener("drop", e => {
+        e.preventDefault();
+        div.classList.remove("drop-target");
+        moveFileTo(dragItem, node);
+    });
+
+    parentEl.appendChild(div);
+
+    node.children?.filter(c => c.type === "folder").forEach(child =>
+        renderTree(child, parentEl, level + 1)
+    );
+}
+
+/* -----------------------------------------------------------
+   TABLE (FILES)
+----------------------------------------------------------- */
+function renderTable() {
+    let tbody = document.getElementById("fileTable");
+    tbody.innerHTML = "";
+
+    currentFolder.children.forEach((item) => {
+        let row = document.createElement("tr");
+        row.dataset.name = item.name;
+
+        row.innerHTML = `
+            <td><span class="icon">${item.type === "folder" ? "📁" : "📄"}</span>${item.name}</td>
+            <td>${item.type}</td>
+            <td>${item.type === "file" ? item.size + " bytes" : "-"}</td>
+        `;
+
+        /* ---- DOUBLE CLICK ---- */
+        row.ondblclick = () => {
+            if (item.type === "folder") {
+                currentFolder = item;
+                renderEverything();
+            } else showPopup("Opens a file once linked to a real database.");
+        };
+
+        /* ---- DRAGGING FILES ---- */
+        if (item.type === "file") {
+            row.draggable = true;
+
+            row.addEventListener("dragstart", () => {
+                dragItem = item;
+            });
+
+            row.addEventListener("dragend", () => {
+                dragItem = null;
+                clearDropHighlights();
+            });
+        }
+
+        /* ---- DROP TARGETS (folders in table) ---- */
+        row.addEventListener("dragover", e => {
+            if (dragItem && item.type === "folder") {
+                e.preventDefault();
+                row.classList.add("drop-target");
+            }
+        });
+
+        row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
+
+        row.addEventListener("drop", e => {
+            if (dragItem && item.type === "folder") {
+                e.preventDefault();
+                row.classList.remove("drop-target");
+                moveFileTo(dragItem, item);
+            }
+        });
+
+        tbody.appendChild(row);
+    });
+}
+
+function clearDropHighlights() {
+    document.querySelectorAll(".drop-target").forEach(el =>
+        el.classList.remove("drop-target")
+    );
+}
+
+/* -----------------------------------------------------------
+   MOVE FILE (drag & drop + paste)
+----------------------------------------------------------- */
+function moveFileTo(file, targetFolder) {
+    if (!file || file.type !== "file") return;
+
+    removeFile(fs, file);
+    targetFolder.children.push(file);
+
+    renderEverything();
+}
+
+function removeFile(node, file) {
+    let i = node.children.indexOf(file);
+    if (i >= 0) {
+        node.children.splice(i, 1);
+        return true;
+    }
+    for (let c of node.children) {
+        if (c.type === "folder" && removeFile(c, file)) return true;
+    }
+    return false;
+}
+
+/* -----------------------------------------------------------
+   ADDRESS BAR
+----------------------------------------------------------- */
+function getPath(node) {
+    function parentOf(target, cur = fs, out = []) {
+        if (target === cur) return out;
+        for (let c of cur.children || []) {
+            if (c.type === "folder") {
+                let r = parentOf(target, c, [...out, cur]);
+                if (r) return r;
+            }
+        }
+        return null;
+    }
+    let parents = parentOf(node) || [];
+    return [...parents.map(p => p.name), node.name].join("\\");
+}
+function renderAddress() {
+    document.getElementById("addressBar").textContent = getPath(currentFolder);
+}
+
+/* -----------------------------------------------------------
+   FULL RENDER
+----------------------------------------------------------- */
+function renderEverything() {
+    renderTree();
+    renderTable();
+    renderAddress();
+    hideMenus();
+}
+
+/* -----------------------------------------------------------
+   CONTEXT MENUS
+----------------------------------------------------------- */
+document.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+    hideMenus();
+
+    const row = e.target.closest("tr[data-name]");
+    const fileMenu = document.getElementById("fileMenu");
+    const emptyMenu = document.getElementById("emptyMenu");
+
+    const x = e.clientX;
+    const y = e.clientY;
+
+    if (row) {
+        const name = row.dataset.name;
+        rightClickedItem = currentFolder.children.find(i => i.name === name);
+
+        fileMenu.style.left = x + "px";
+        fileMenu.style.top = y + "px";
+        fileMenu.style.display = "block";
+    } else {
+        if (cutBuffer) {
+            emptyMenu.style.left = x + "px";
+            emptyMenu.style.top = y + "px";
+            emptyMenu.style.display = "block";
+        }
+    }
+});
+
+function hideMenus() {
+    document.getElementById("fileMenu").style.display = "none";
+    document.getElementById("emptyMenu").style.display = "none";
+}
+document.addEventListener("click", hideMenus);
+
+/* -----------------------------------------------------------
+   CONTEXT ACTIONS
+----------------------------------------------------------- */
+function cutItem() {
+    cutBuffer = rightClickedItem;
+    hideMenus();
+}
+
+function pasteItem() {
+    if (!cutBuffer) return;
+    moveFileTo(cutBuffer, currentFolder);
+    cutBuffer = null;
+}
+
+function deleteItem() {
+    removeFile(currentFolder, rightClickedItem);
+    hideMenus();
+    renderEverything();
+}
+
+function showProperties() {
+    showPopup("Properties window placeholder.");
+}
+
+/* -----------------------------------------------------------
+   POPUP
+----------------------------------------------------------- */
+function showPopup(text) {
+    document.getElementById("popupText").innerHTML = text;
+    document.getElementById("popup").style.display = "block";
+}
+function closePopup() {
+    document.getElementById("popup").style.display = "none";
+}
+
+/* -----------------------------------------------------------
+   TOOLBAR
+----------------------------------------------------------- */
+function createFolder() {
+    let name = prompt("Folder name:");
+    if (!name) return;
+    currentFolder.children.push({ name, type: "folder", children: [] });
+    renderEverything();
+}
+
+function uploadFile() {
+    document.getElementById("fileInput").click();
+}
+function handleUpload(e) {
+    let f = e.target.files[0];
+    if (!f) return;
+    currentFolder.children.push({ name: f.name, type: "file", size: f.size });
+    e.target.value = "";
+    renderEverything();
+}
+
+function goUp() {
+    if (currentFolder === fs) return;
+
+    function parentOf(target, cur = fs, parent = null) {
+        if (target === cur) return parent;
+        for (let c of cur.children || []) {
+            if (c.type === "folder") {
+                let r = parentOf(target, c, cur);
+                if (r) return r;
+            }
+        }
+        return null;
+    }
+
+    let parent = parentOf(currentFolder);
+    if (parent) {
+        currentFolder = parent;
+        renderEverything();
+    }
+}
+
+renderEverything();
+</script>
+
+</body>
+</html>
